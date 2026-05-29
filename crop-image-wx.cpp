@@ -249,6 +249,7 @@ void ImagePanel::OnMouse(wxMouseEvent& evt) {
             m_handle=HID::SE; m_drag=true; m_create=true;
             m_start=pt;
             wxPoint ip=S2I(pt); m_crop=wxRect(ip.x,ip.y,1,1); m_hasCrop=true;
+            Clamp();
             CaptureMouse();
         } Refresh(); return;
     }
