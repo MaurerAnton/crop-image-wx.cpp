@@ -4,7 +4,6 @@
 #include <wx/wx.h>
 #include <wx/filedlg.h>
 #include <wx/image.h>
-#include <wx/dcbuffer.h>
 #include <wx/filename.h>
 #include <algorithm>
 #include <cmath>
@@ -150,7 +149,7 @@ void MainFrame::OnReset(wxCommandEvent&) { pnl->ResetCrop(); }
 // ══════════════════════ ImagePanel ══════════════════════
 
 ImagePanel::ImagePanel(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
+    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize)
 {
     SetBackgroundColour(wxColour(40, 40, 40));
     Bind(wxEVT_PAINT, &ImagePanel::OnPaint, this);
@@ -215,10 +214,12 @@ void ImagePanel::Recalc() {
 }
 
 wxPoint ImagePanel::S2I(const wxPoint& p) const {
+    if (m_irect.width < 1 || m_irect.height < 1) return {0,0};
     return {int((p.x - m_irect.x) * m_img.GetWidth()  / double(m_irect.width)),
             int((p.y - m_irect.y) * m_img.GetHeight() / double(m_irect.height))};
 }
 wxPoint ImagePanel::I2S(const wxPoint& p) const {
+    if (m_irect.width < 1 || m_irect.height < 1) return {0,0};
     return {int(m_irect.x + p.x * double(m_irect.width)  / m_img.GetWidth()),
             int(m_irect.y + p.y * double(m_irect.height) / m_img.GetHeight())};
 }
@@ -332,7 +333,7 @@ void ImagePanel::OnKeyDown(wxKeyEvent& evt) {
 }
 
 void ImagePanel::OnPaint(wxPaintEvent&) {
-    wxAutoBufferedPaintDC dc(this);
+    wxPaintDC dc(this);
     dc.SetBackground(wxBrush(GetBackgroundColour()));
     dc.Clear();
 
