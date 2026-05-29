@@ -313,9 +313,10 @@ void ImagePanel::OnMouse(wxMouseEvent& evt) {
 
 void ImagePanel::OnKeyDown(wxKeyEvent& evt) {
     if (!m_img.IsOk()) { evt.Skip(); return; }
-    if (evt.GetKeyCode()==WXK_ESCAPE) Reset();
-    else if (evt.GetKeyCode()==WXK_RETURN && evt.ControlDown() && m_hasCrop) Crop();
-    else evt.Skip();
+    int k = evt.GetKeyCode();
+    if (k == WXK_ESCAPE) { Reset(); return; }
+    if ((k == WXK_RETURN || k == WXK_NUMPAD_ENTER) && m_hasCrop) { Crop(); return; }
+    evt.Skip();
 }
 
 void ImagePanel::OnPaint(wxPaintEvent&) {
