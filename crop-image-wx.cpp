@@ -425,12 +425,17 @@ void ImagePanel::NotifyFrame() {
     if (!top) return;
     if (auto* f = dynamic_cast<MainFrame*>(top)) {
         f->UpdateCropBtn();
-        if (m_hasCrop && m_img.IsOk())
-            f->UpdateDimLabel(m_crop.width, m_crop.height);
-        else if (m_img.IsOk())
-            f->UpdateDimLabel(m_img.GetWidth(), m_img.GetHeight());
-        else
-            f->UpdateDimLabel(0, 0);
+        CallAfter([f, cropW = m_hasCrop ? m_crop.width : 0,
+                        cropH = m_hasCrop ? m_crop.height : 0,
+                        imgW  = m_img.IsOk() ? m_img.GetWidth() : 0,
+                        imgH  = m_img.IsOk() ? m_img.GetHeight() : 0]() {
+            if (cropW > 0 && cropH > 0)
+                f->UpdateDimLabel(cropW, cropH);
+            else if (imgW > 0 && imgH > 0)
+                f->UpdateDimLabel(imgW, imgH);
+            else
+                f->UpdateDimLabel(0, 0);
+        });
     }
 }
 
