@@ -9,33 +9,23 @@
 #include <algorithm>
 #include <cmath>
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-constexpr int HANDLE_SIZE    = 8;
-constexpr int HANDLE_HALF    = HANDLE_SIZE / 2;
-constexpr int HANDLE_HIT     = 6;
-constexpr int MIN_CROP_PX    = 10;
+constexpr int HANDLE_SIZE = 8;
+constexpr int HANDLE_HALF = HANDLE_SIZE / 2;
+constexpr int HANDLE_HIT  = 6;
+constexpr int MIN_CROP_PX = 10;
 
 enum class HandleID {
-    None,
-    NorthWest, North, NorthEast,
-    West, Center, East,
-    SouthWest, South, SouthEast
+    None, NorthWest, North, NorthEast, West, Center, East, SouthWest, South, SouthEast
 };
-
-// ─── Forward decls ───────────────────────────────────────────────────────────
 
 class ImagePanel;
 class MainFrame;
 
-// ─── ImagePanel ──────────────────────────────────────────────────────────────
-
 class ImagePanel : public wxPanel {
 public:
     ImagePanel(wxWindow* parent);
-
     bool LoadImage(const wxString& path);
-    bool HasImage() const { return m_original.IsOk(); }
+    bool HasImage() const { return m_img.IsOk(); }
     void ApplyCrop();
     void ResetCrop();
     wxImage GetCropped() const;
@@ -46,34 +36,28 @@ private:
     void OnMouse(wxMouseEvent&);
     void OnKeyDown(wxKeyEvent&);
 
-    void RecalcLayout();
-    void RenderBuffer();
+    void   Recalc();
+    wxPoint S2I(const wxPoint& p) const;
+    wxPoint I2S(const wxPoint& p) const;
+    wxRect  I2S(const wxRect& r) const;
+    HandleID HitTest(const wxPoint& pt) const;
+    void    Clamp();
+    void    DrawDim(wxDC& dc);
+    void    DrawHnd(wxDC& dc);
+    void    Cursor(const wxPoint& pt);
 
-    wxPoint    ScreenToImage(const wxPoint& screenPt) const;
-    wxPoint    ImageToScreen(const wxPoint& imagePt) const;
-    wxRect     ImageToScreen(const wxRect& imageRect) const;
-    HandleID   HitTestHandle(const wxPoint& screenPt) const;
-    void       ConstrainCropRect();
-    void       DrawCropOverlay(wxDC& dc);
-    void       DrawHandles(wxDC& dc);
-    void       SetCursorForPos(const wxPoint& screenPt);
-
-    wxImage     m_original;
-    wxBitmap    m_bitmap;
-    wxRect      m_imageRect;
-    bool        m_cropEnabled    = false;
-    wxRect      m_cropRect;
-    bool        m_hasCropRect    = false;
-    bool        m_dragging       = false;
-    bool        m_creatingCrop   = false;
-    wxPoint     m_dragStart;
-    wxRect      m_dragOrigCrop;
-    HandleID    m_activeHandle   = HandleID::None;
-    wxCursor    m_curNWSW;
-    wxCursor    m_curNESW;
+    wxImage  m_img;
+    wxBitmap m_bmp;
+    wxRect   m_irect;
+    bool     m_cropEn    = false;
+    wxRect   m_crop;
+    bool     m_hasCrop   = false;
+    bool     m_drag      = false;
+    bool     m_create    = false;
+    wxPoint  m_start;
+    wxRect   m_orig;
+    HandleID m_handle   = HandleID::None;
 };
-
-// ─── MainFrame ───────────────────────────────────────────────────────────────
 
 class MainFrame : public wxFrame {
 public:
@@ -82,474 +66,332 @@ private:
     void OnOpen(wxCommandEvent&);
     void OnSave(wxCommandEvent&);
     void OnSaveAs(wxCommandEvent&);
-    void OnSaveAsSentinel();
     void OnCrop(wxCommandEvent&);
-    void OnResetCrop(wxCommandEvent&);
-    void OnClose(wxCommandEvent&);
-    void UpdateTitle();
-
-    ImagePanel*   m_panel = nullptr;
-    wxString      m_path;
-    wxString      m_name;
+    void OnReset(wxCommandEvent&);
+    ImagePanel* pnl = nullptr;
+    wxString path, name;
 };
 
-// ─── App ─────────────────────────────────────────────────────────────────────
-
 class CropApp : public wxApp {
-public:
     bool OnInit() override {
         wxInitAllImageHandlers();
-        auto* frame = new MainFrame();
-        frame->Show(true);
+        (new MainFrame())->Show(true);
         return true;
     }
 };
-
 wxIMPLEMENT_APP(CropApp);
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  MainFrame
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════ MainFrame ══════════════════════
 
 MainFrame::MainFrame()
-    : wxFrame(nullptr, wxID_ANY, "Crop Tool — Untitled",
-              wxDefaultPosition, wxSize(1024, 768))
+    : wxFrame(nullptr, wxID_ANY, "Crop Tool — Untitled", wxDefaultPosition, wxSize(1024, 768))
 {
-    // ── Menu ──────────────────────────────────────────────────────────────
     auto* fm = new wxMenu;
     fm->Append(wxID_OPEN,   "&Open...\tCtrl+O");
     fm->Append(wxID_SAVE,   "&Save\tCtrl+S");
     fm->Append(wxID_SAVEAS, "Save &As...\tCtrl+Shift+S");
     fm->AppendSeparator();
     fm->Append(wxID_CLOSE,  "E&xit\tCtrl+Q");
-
     auto* em = new wxMenu;
     em->Append(wxID_CUT,   "&Crop\tCtrl+Return");
     em->Append(wxID_UNDO,  "&Reset Crop\tEscape");
-
     auto* mb = new wxMenuBar;
     mb->Append(fm, "&File");
     mb->Append(em, "&Edit");
     SetMenuBar(mb);
 
-    // ── Panel ─────────────────────────────────────────────────────────────
-    m_panel = new ImagePanel(this);
+    pnl = new ImagePanel(this);
 
-    // ── Bindings ──────────────────────────────────────────────────────────
-    Bind(wxEVT_MENU, &MainFrame::OnOpen,      this, wxID_OPEN);
-    Bind(wxEVT_MENU, &MainFrame::OnSave,      this, wxID_SAVE);
-    Bind(wxEVT_MENU, &MainFrame::OnSaveAs,    this, wxID_SAVEAS);
-    Bind(wxEVT_MENU, &MainFrame::OnCrop,      this, wxID_CUT);
-    Bind(wxEVT_MENU, &MainFrame::OnResetCrop, this, wxID_UNDO);
-    Bind(wxEVT_MENU, &MainFrame::OnClose,     this, wxID_CLOSE);
-
-    CreateStatusBar();
-    SetStatusText("Ready — drag an image or File → Open");
+    Bind(wxEVT_MENU, &MainFrame::OnOpen,   this, wxID_OPEN);
+    Bind(wxEVT_MENU, &MainFrame::OnSave,   this, wxID_SAVE);
+    Bind(wxEVT_MENU, &MainFrame::OnSaveAs, this, wxID_SAVEAS);
+    Bind(wxEVT_MENU, &MainFrame::OnCrop,   this, wxID_CUT);
+    Bind(wxEVT_MENU, &MainFrame::OnReset,  this, wxID_UNDO);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&){ Close(true); }, wxID_CLOSE);
 }
 
 void MainFrame::OnOpen(wxCommandEvent&) {
-    wxFileDialog dlg(this, "Open Image", "", "",
-        "Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff|All files|*.*",
+    wxFileDialog dlg(this, "Open", "", "",
+        "Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff|All|*.*",
         wxFD_OPEN | wxFD_FILE_MUST_EXIST);
     if (dlg.ShowModal() == wxID_CANCEL) return;
-
-    wxString path = dlg.GetPath();
-    if (m_panel->LoadImage(path)) {
-        m_path = path;
-        m_name = dlg.GetFilename();
-        UpdateTitle();
-        wxImage img = m_panel->GetCropped();
-        SetStatusText(wxString::Format("Loaded %dx%d — drag to crop", img.GetWidth(), img.GetHeight()));
-    } else {
+    wxString p = dlg.GetPath();
+    if (pnl->LoadImage(p)) {
+        path = p; name = dlg.GetFilename();
+        SetTitle(name + " — Crop Tool");
+    } else
         wxMessageBox("Failed to load image.", "Error", wxOK | wxICON_ERROR);
-    }
 }
 
 void MainFrame::OnSave(wxCommandEvent&) {
-    if (m_path.empty()) { CallAfter([this](){ OnSaveAsSentinel(); }); return; }
-    wxImage img = m_panel->GetCropped();
-    if (!img.IsOk()) return;
-    if (img.SaveFile(m_path))
-        SetStatusText("Saved.");
-    else
-        wxMessageBox("Failed to save.", "Error", wxOK | wxICON_ERROR);
+    if (path.empty()) { wxCommandEvent d; OnSaveAs(d); return; }
+    wxImage img = pnl->GetCropped();
+    if (img.IsOk()) img.SaveFile(path);
 }
 
-void MainFrame::OnSaveAsSentinel() { wxCommandEvent d; OnSaveAs(d); }
-
 void MainFrame::OnSaveAs(wxCommandEvent&) {
-    wxImage img = m_panel->GetCropped();
+    wxImage img = pnl->GetCropped();
     if (!img.IsOk()) return;
-    wxFileDialog dlg(this, "Save As", "", m_name,
+    wxFileDialog dlg(this, "Save As", "", name,
         "PNG|*.png|JPEG|*.jpg|BMP|*.bmp",
         wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
     if (dlg.ShowModal() == wxID_CANCEL) return;
-    wxString path = dlg.GetPath();
-    if (img.SaveFile(path)) {
-        m_path = path;
-        m_name = wxFileName(path).GetFullName();
-        UpdateTitle();
-        SetStatusText("Saved.");
-    } else {
-        wxMessageBox("Failed to save.", "Error", wxOK | wxICON_ERROR);
-    }
+    wxString p = dlg.GetPath();
+    if (img.SaveFile(p)) { path = p; name = wxFileName(p).GetFullName(); SetTitle(name + " — Crop Tool"); }
 }
 
 void MainFrame::OnCrop(wxCommandEvent&) {
-    m_panel->ApplyCrop();
-    UpdateTitle();
-    wxImage img = m_panel->GetCropped();
-    SetStatusText(wxString::Format("Cropped to %dx%d", img.GetWidth(), img.GetHeight()));
+    pnl->ApplyCrop();
+    SetTitle((name.empty() ? "Untitled" : name) + " — Crop Tool");
 }
 
-void MainFrame::OnResetCrop(wxCommandEvent&) {
-    m_panel->ResetCrop();
-    SetStatusText("Crop reset.");
-}
+void MainFrame::OnReset(wxCommandEvent&) { pnl->ResetCrop(); }
 
-void MainFrame::OnClose(wxCommandEvent&) { Close(true); }
-
-void MainFrame::UpdateTitle() {
-    SetTitle((m_name.empty() ? "Untitled" : m_name) + " — Crop Tool");
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  ImagePanel
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════ ImagePanel ══════════════════════
 
 ImagePanel::ImagePanel(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-              wxFULL_REPAINT_ON_RESIZE)
+    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxFULL_REPAINT_ON_RESIZE)
 {
     SetBackgroundColour(wxColour(40, 40, 40));
-    SetMinSize(wxSize(200, 150));
-
-    m_curNWSW = wxCursor(wxCURSOR_SIZENWSE);
-    m_curNESW = wxCursor(wxCURSOR_SIZENESW);
-
-    Bind(wxEVT_PAINT,       &ImagePanel::OnPaint,  this);
-    Bind(wxEVT_SIZE,        &ImagePanel::OnSize,   this);
-    Bind(wxEVT_MOTION,      &ImagePanel::OnMouse,  this);
-    Bind(wxEVT_LEFT_DOWN,   &ImagePanel::OnMouse,  this);
-    Bind(wxEVT_LEFT_UP,     &ImagePanel::OnMouse,  this);
+    Bind(wxEVT_PAINT, &ImagePanel::OnPaint, this);
+    Bind(wxEVT_SIZE,  &ImagePanel::OnSize,  this);
+    Bind(wxEVT_MOTION,    &ImagePanel::OnMouse, this);
+    Bind(wxEVT_LEFT_DOWN, &ImagePanel::OnMouse, this);
+    Bind(wxEVT_LEFT_UP,   &ImagePanel::OnMouse, this);
     Bind(wxEVT_MOUSE_CAPTURE_LOST, [](wxMouseCaptureLostEvent&){});
-    Bind(wxEVT_KEY_DOWN,    &ImagePanel::OnKeyDown, this);
+    Bind(wxEVT_KEY_DOWN, &ImagePanel::OnKeyDown, this);
 }
-
-// ─── Load ──────────────────────────────────────────────────────────────────
 
 bool ImagePanel::LoadImage(const wxString& path) {
     wxImage img(path);
     if (!img.IsOk()) return false;
-    m_original = img;
-    m_hasCropRect = false;
-    m_cropRect = wxRect(0, 0, img.GetWidth(), img.GetHeight());
-    m_cropEnabled = true;
-    RecalcLayout();
-    RenderBuffer();
+    m_img = img;
+    m_hasCrop = false;
+    m_crop = wxRect(0, 0, img.GetWidth(), img.GetHeight());
+    m_cropEn = true;
+    Layout();
+    m_bmp = wxBitmap(m_img.Scale(m_irect.width, m_irect.height, wxIMAGE_QUALITY_BILINEAR));
     Refresh();
     return true;
 }
 
-// ─── Crop ──────────────────────────────────────────────────────────────────
-
 void ImagePanel::ApplyCrop() {
-    if (!m_original.IsOk() || !m_hasCropRect) return;
-    wxRect r = m_cropRect.Intersect(
-        wxRect(0, 0, m_original.GetWidth(), m_original.GetHeight()));
+    if (!m_img.IsOk() || !m_hasCrop) return;
+    wxRect r = m_crop.Intersect(wxRect(0, 0, m_img.GetWidth(), m_img.GetHeight()));
     if (r.width < 1 || r.height < 1) return;
-    m_original = m_original.GetSubImage(r);
-    m_hasCropRect = false;
-    m_cropRect = wxRect(0, 0, m_original.GetWidth(), m_original.GetHeight());
-    RecalcLayout();
-    RenderBuffer();
+    m_img = m_img.GetSubImage(r);
+    m_hasCrop = false;
+    m_crop = wxRect(0, 0, m_img.GetWidth(), m_img.GetHeight());
+    Layout();
+    m_bmp = wxBitmap(m_img.Scale(m_irect.width, m_irect.height, wxIMAGE_QUALITY_BILINEAR));
     Refresh();
 }
 
 void ImagePanel::ResetCrop() {
-    if (!m_original.IsOk()) return;
-    m_hasCropRect = false;
-    m_cropRect = wxRect(0, 0, m_original.GetWidth(), m_original.GetHeight());
+    if (!m_img.IsOk()) return;
+    m_hasCrop = false;
+    m_crop = wxRect(0, 0, m_img.GetWidth(), m_img.GetHeight());
     Refresh();
 }
 
 wxImage ImagePanel::GetCropped() const {
-    if (!m_original.IsOk()) return m_original;
-    if (!m_hasCropRect) return m_original;
-    wxRect r = m_cropRect.Intersect(
-        wxRect(0, 0, m_original.GetWidth(), m_original.GetHeight()));
-    return (r.width > 0 && r.height > 0) ? m_original.GetSubImage(r) : m_original;
+    if (!m_img.IsOk()) return m_img;
+    if (!m_hasCrop) return m_img;
+    wxRect r = m_crop.Intersect(wxRect(0, 0, m_img.GetWidth(), m_img.GetHeight()));
+    return (r.width > 0 && r.height > 0) ? m_img.GetSubImage(r) : m_img;
 }
 
-// ─── Layout ────────────────────────────────────────────────────────────────
-
-void ImagePanel::RecalcLayout() {
-    if (!m_original.IsOk()) return;
+void ImagePanel::Recalc() {
+    if (!m_img.IsOk()) return;
     int cw, ch;
     GetClientSize(&cw, &ch);
     if (cw < 1 || ch < 1) return;
-
-    int iw = m_original.GetWidth();
-    int ih = m_original.GetHeight();
+    int iw = m_img.GetWidth(), ih = m_img.GetHeight();
     double s = std::min(double(cw)/iw, double(ch)/ih);
-
-    m_imageRect.width  = std::max(1, int(iw * s));
-    m_imageRect.height = std::max(1, int(ih * s));
-    m_imageRect.x = (cw - m_imageRect.width)  / 2;
-    m_imageRect.y = (ch - m_imageRect.height) / 2;
+    m_irect.width  = std::max(1, int(iw * s));
+    m_irect.height = std::max(1, int(ih * s));
+    m_irect.x = (cw - m_irect.width)  / 2;
+    m_irect.y = (ch - m_irect.height) / 2;
 }
 
-void ImagePanel::RenderBuffer() {
-    if (!m_original.IsOk()) return;
-    int w = m_imageRect.width;
-    int h = m_imageRect.height;
-    if (w < 1 || h < 1) return;
-    m_bitmap = wxBitmap(m_original.Scale(w, h, wxIMAGE_QUALITY_BILINEAR));
+wxPoint ImagePanel::S2I(const wxPoint& p) const {
+    return {int((p.x - m_irect.x) * m_img.GetWidth()  / double(m_irect.width)),
+            int((p.y - m_irect.y) * m_img.GetHeight() / double(m_irect.height))};
+}
+wxPoint ImagePanel::I2S(const wxPoint& p) const {
+    return {int(m_irect.x + p.x * double(m_irect.width)  / m_img.GetWidth()),
+            int(m_irect.y + p.y * double(m_irect.height) / m_img.GetHeight())};
+}
+wxRect ImagePanel::I2S(const wxRect& r) const {
+    return wxRect(I2S(r.GetTopLeft()), I2S(r.GetBottomRight()));
 }
 
-// ─── Coords ────────────────────────────────────────────────────────────────
-
-wxPoint ImagePanel::ScreenToImage(const wxPoint& p) const {
-    if (m_imageRect.width < 1 || m_imageRect.height < 1) return {0,0};
-    return {
-        int((p.x - m_imageRect.x) * double(m_original.GetWidth())  / m_imageRect.width),
-        int((p.y - m_imageRect.y) * double(m_original.GetHeight()) / m_imageRect.height)
-    };
-}
-
-wxPoint ImagePanel::ImageToScreen(const wxPoint& p) const {
-    if (m_imageRect.width < 1 || m_imageRect.height < 1) return {0,0};
-    return {
-        int(m_imageRect.x + p.x * double(m_imageRect.width)  / m_original.GetWidth()),
-        int(m_imageRect.y + p.y * double(m_imageRect.height) / m_original.GetHeight())
-    };
-}
-
-wxRect ImagePanel::ImageToScreen(const wxRect& r) const {
-    wxPoint tl = ImageToScreen(r.GetTopLeft());
-    wxPoint br = ImageToScreen(r.GetBottomRight());
-    return wxRect(tl, br);
-}
-
-// ─── Hit test ──────────────────────────────────────────────────────────────
-
-HandleID ImagePanel::HitTestHandle(const wxPoint& pt) const {
-    if (!m_hasCropRect) return HandleID::None;
-    wxRect scr = ImageToScreen(m_cropRect);
+HandleID ImagePanel::HitTest(const wxPoint& pt) const {
+    if (!m_hasCrop) return HandleID::None;
+    wxRect r = I2S(m_crop);
     int hit = HANDLE_HALF + HANDLE_HIT;
-
     struct { int x, y; HandleID id; } pts[] = {
-        {scr.x,              scr.y,               HandleID::NorthWest},
-        {scr.x + scr.width/2,scr.y,               HandleID::North},
-        {scr.x + scr.width,  scr.y,               HandleID::NorthEast},
-        {scr.x,              scr.y + scr.height/2,HandleID::West},
-        {scr.x + scr.width,  scr.y + scr.height/2,HandleID::East},
-        {scr.x,              scr.y + scr.height,  HandleID::SouthWest},
-        {scr.x + scr.width/2,scr.y + scr.height,  HandleID::South},
-        {scr.x + scr.width,  scr.y + scr.height,  HandleID::SouthEast},
+        {r.x,              r.y,               HandleID::NorthWest},
+        {r.x+r.width/2,   r.y,               HandleID::North},
+        {r.x+r.width,     r.y,               HandleID::NorthEast},
+        {r.x,              r.y+r.height/2,   HandleID::West},
+        {r.x+r.width,     r.y+r.height/2,   HandleID::East},
+        {r.x,              r.y+r.height,     HandleID::SouthWest},
+        {r.x+r.width/2,   r.y+r.height,     HandleID::South},
+        {r.x+r.width,     r.y+r.height,     HandleID::SouthEast},
     };
     for (auto& p : pts)
-        if (std::abs(pt.x - p.x) <= hit && std::abs(pt.y - p.y) <= hit)
-            return p.id;
-    if (scr.Contains(pt)) return HandleID::Center;
+        if (abs(pt.x - p.x) <= hit && abs(pt.y - p.y) <= hit) return p.id;
+    if (r.Contains(pt)) return HandleID::Center;
     return HandleID::None;
 }
 
-void ImagePanel::ConstrainCropRect() {
-    int iw = m_original.GetWidth(), ih = m_original.GetHeight();
-    if (m_cropRect.width  < MIN_CROP_PX) m_cropRect.width  = MIN_CROP_PX;
-    if (m_cropRect.height < MIN_CROP_PX) m_cropRect.height = MIN_CROP_PX;
-    if (m_cropRect.x < 0) m_cropRect.x = 0;
-    if (m_cropRect.y < 0) m_cropRect.y = 0;
-    if (m_cropRect.GetRight()  > iw) m_cropRect.x = iw - m_cropRect.width;
-    if (m_cropRect.GetBottom() > ih) m_cropRect.y = ih - m_cropRect.height;
+void ImagePanel::Clamp() {
+    int iw = m_img.GetWidth(), ih = m_img.GetHeight();
+    if (m_crop.width  < MIN_CROP_PX) m_crop.width  = MIN_CROP_PX;
+    if (m_crop.height < MIN_CROP_PX) m_crop.height = MIN_CROP_PX;
+    if (m_crop.x < 0) m_crop.x = 0;
+    if (m_crop.y < 0) m_crop.y = 0;
+    if (m_crop.GetRight()  > iw) m_crop.x = iw - m_crop.width;
+    if (m_crop.GetBottom() > ih) m_crop.y = ih - m_crop.height;
 }
 
-// ─── Mouse ─────────────────────────────────────────────────────────────────
-
-void ImagePanel::OnMouse(wxMouseEvent& evt) {
-    if (!m_original.IsOk() || !m_cropEnabled) { evt.Skip(); return; }
-    wxPoint pt = evt.GetPosition();
-
-    if (evt.LeftDown()) {
-        SetFocus();
-        HandleID hit = HitTestHandle(pt);
-        if (hit != HandleID::None) {
-            m_activeHandle = hit;
-            m_dragging = true;
-            m_creatingCrop = false;
-            m_dragStart = pt;
-            m_dragOrigCrop = m_cropRect;
-            CaptureMouse();
-        } else {
-            m_activeHandle = HandleID::SouthEast;
-            m_dragging = true;
-            m_creatingCrop = true;
-            m_dragStart = pt;
-            wxPoint ip = ScreenToImage(pt);
-            m_cropRect = wxRect(ip.x, ip.y, 1, 1);
-            m_hasCropRect = true;
-            CaptureMouse();
-        }
-        Refresh();
-        return;
-    }
-
-    if (evt.Dragging() && m_dragging) {
-        wxPoint id = ScreenToImage(pt) - ScreenToImage(m_dragStart);
-        if (m_creatingCrop) {
-            wxPoint a = ScreenToImage(m_dragStart);
-            wxPoint b = ScreenToImage(pt);
-            m_cropRect = wxRect(
-                std::min(a.x,b.x), std::min(a.y,b.y),
-                std::abs(b.x-a.x), std::abs(b.y-a.y));
-        } else {
-            auto& r = m_dragOrigCrop;
-            switch (m_activeHandle) {
-            case HandleID::NorthWest:
-                m_cropRect = wxRect(r.x+id.x, r.y+id.y, r.width-id.x, r.height-id.y); break;
-            case HandleID::North:
-                m_cropRect = wxRect(r.x, r.y+id.y, r.width, r.height-id.y); break;
-            case HandleID::NorthEast:
-                m_cropRect = wxRect(r.x, r.y+id.y, r.width+id.x, r.height-id.y); break;
-            case HandleID::West:
-                m_cropRect = wxRect(r.x+id.x, r.y, r.width-id.x, r.height); break;
-            case HandleID::East:
-                m_cropRect = wxRect(r.x, r.y, r.width+id.x, r.height); break;
-            case HandleID::SouthWest:
-                m_cropRect = wxRect(r.x+id.x, r.y, r.width-id.x, r.height+id.y); break;
-            case HandleID::South:
-                m_cropRect = wxRect(r.x, r.y, r.width, r.height+id.y); break;
-            case HandleID::SouthEast:
-                m_cropRect = wxRect(r.x, r.y, r.width+id.x, r.height+id.y); break;
-            case HandleID::Center:
-                m_cropRect = wxRect(r.x+id.x, r.y+id.y, r.width, r.height); break;
-            default: break;
-            }
-        }
-        ConstrainCropRect();
-        Refresh();
-        return;
-    }
-
-    if (evt.LeftUp() && m_dragging) {
-        m_dragging = false;
-        m_creatingCrop = false;
-        m_activeHandle = HandleID::None;
-        if (HasCapture()) ReleaseMouse();
-        if (m_cropRect.width < MIN_CROP_PX || m_cropRect.height < MIN_CROP_PX)
-            m_hasCropRect = false;
-        Refresh();
-        return;
-    }
-
-    if (evt.Moving()) SetCursorForPos(pt);
-    else evt.Skip();
-}
-
-void ImagePanel::OnKeyDown(wxKeyEvent& evt) {
-    if (!m_original.IsOk()) { evt.Skip(); return; }
-    if (evt.GetKeyCode() == WXK_ESCAPE) ResetCrop();
-    else if (evt.GetKeyCode() == WXK_RETURN && evt.ControlDown() && m_hasCropRect)
-        ApplyCrop();
-    else evt.Skip();
-}
-
-void ImagePanel::SetCursorForPos(const wxPoint& pt) {
-    if (!m_cropEnabled) { SetCursor(wxCursor(wxCURSOR_ARROW)); return; }
-    switch (HitTestHandle(pt)) {
-    case HandleID::NorthWest: case HandleID::SouthEast: SetCursor(m_curNWSW); break;
-    case HandleID::NorthEast: case HandleID::SouthWest: SetCursor(m_curNESW); break;
-    case HandleID::North: case HandleID::South: SetCursor(wxCursor(wxCURSOR_SIZENS)); break;
-    case HandleID::West:  case HandleID::East:  SetCursor(wxCursor(wxCURSOR_SIZEWE)); break;
+void ImagePanel::Cursor(const wxPoint& pt) {
+    switch (HitTest(pt)) {
+    case HandleID::NorthWest: case HandleID::SouthEast:
+        SetCursor(wxCursor(wxCURSOR_SIZENWSE)); break;
+    case HandleID::NorthEast: case HandleID::SouthWest:
+        SetCursor(wxCursor(wxCURSOR_SIZENESW)); break;
+    case HandleID::North: case HandleID::South:
+        SetCursor(wxCursor(wxCURSOR_SIZENS)); break;
+    case HandleID::West: case HandleID::East:
+        SetCursor(wxCursor(wxCURSOR_SIZEWE)); break;
     case HandleID::Center: SetCursor(wxCursor(wxCURSOR_SIZING)); break;
     default: SetCursor(wxCursor(wxCURSOR_CROSS)); break;
     }
 }
 
-// ─── Paint ─────────────────────────────────────────────────────────────────
+void ImagePanel::OnMouse(wxMouseEvent& evt) {
+    if (!m_img.IsOk() || !m_cropEn) { evt.Skip(); return; }
+    wxPoint pt = evt.GetPosition();
+
+    if (evt.LeftDown()) {
+        SetFocus();
+        HandleID hit = HitTest(pt);
+        if (hit != HandleID::None) {
+            m_handle = hit; m_drag = true; m_create = false;
+            m_start = pt; m_orig = m_crop; CaptureMouse();
+        } else {
+            m_handle = HandleID::SouthEast; m_drag = true; m_create = true;
+            m_start = pt;
+            wxPoint ip = S2I(pt);
+            m_crop = wxRect(ip.x, ip.y, 1, 1); m_hasCrop = true;
+            CaptureMouse();
+        }
+        Refresh(); return;
+    }
+
+    if (evt.Dragging() && m_drag) {
+        wxPoint d = S2I(pt) - S2I(m_start);
+        if (m_create) {
+            wxPoint a = S2I(m_start), b = S2I(pt);
+            m_crop = wxRect(std::min(a.x,b.x), std::min(a.y,b.y), abs(b.x-a.x), abs(b.y-a.y));
+        } else {
+            auto& r = m_orig;
+            switch (m_handle) {
+            case HandleID::NorthWest: m_crop = wxRect(r.x+d.x,r.y+d.y,r.width-d.x,r.height-d.y); break;
+            case HandleID::North:     m_crop = wxRect(r.x,r.y+d.y,r.width,r.height-d.y); break;
+            case HandleID::NorthEast: m_crop = wxRect(r.x,r.y+d.y,r.width+d.x,r.height-d.y); break;
+            case HandleID::West:      m_crop = wxRect(r.x+d.x,r.y,r.width-d.x,r.height); break;
+            case HandleID::East:      m_crop = wxRect(r.x,r.y,r.width+d.x,r.height); break;
+            case HandleID::SouthWest: m_crop = wxRect(r.x+d.x,r.y,r.width-d.x,r.height+d.y); break;
+            case HandleID::South:     m_crop = wxRect(r.x,r.y,r.width,r.height+d.y); break;
+            case HandleID::SouthEast: m_crop = wxRect(r.x,r.y,r.width+d.x,r.height+d.y); break;
+            case HandleID::Center:    m_crop = wxRect(r.x+d.x,r.y+d.y,r.width,r.height); break;
+            default: break;
+            }
+        }
+        Clamp(); Refresh(); return;
+    }
+
+    if (evt.LeftUp() && m_drag) {
+        m_drag = false; m_create = false; m_handle = HandleID::None;
+        if (HasCapture()) ReleaseMouse();
+        if (m_crop.width < MIN_CROP_PX || m_crop.height < MIN_CROP_PX) m_hasCrop = false;
+        Refresh(); return;
+    }
+
+    if (evt.Moving()) Cursor(pt); else evt.Skip();
+}
+
+void ImagePanel::OnKeyDown(wxKeyEvent& evt) {
+    if (!m_img.IsOk()) { evt.Skip(); return; }
+    if (evt.GetKeyCode() == WXK_ESCAPE) ResetCrop();
+    else if (evt.GetKeyCode() == WXK_RETURN && evt.ControlDown() && m_hasCrop) ApplyCrop();
+    else evt.Skip();
+}
 
 void ImagePanel::OnPaint(wxPaintEvent&) {
-    wxBufferedPaintDC dc(this);
+    wxAutoBufferedPaintDC dc(this);
     dc.SetBackground(wxBrush(GetBackgroundColour()));
     dc.Clear();
 
-    if (!m_original.IsOk()) {
+    if (!m_img.IsOk()) {
         dc.SetTextForeground(wxColour(150, 150, 150));
-        dc.SetFont(wxFont(14, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
         dc.DrawText("Drag an image here or File → Open", 20, 20);
         return;
     }
-
-    if (m_bitmap.IsOk())
-        dc.DrawBitmap(m_bitmap, m_imageRect.x, m_imageRect.y);
-
-    if (m_hasCropRect && m_cropEnabled) {
-        DrawCropOverlay(dc);
-        DrawHandles(dc);
-    }
+    if (m_bmp.IsOk()) dc.DrawBitmap(m_bmp, m_irect.x, m_irect.y);
+    if (m_hasCrop && m_cropEn) { DrawDim(dc); DrawHnd(dc); }
 }
 
-void ImagePanel::DrawCropOverlay(wxDC& dc) {
-    wxRect scr = ImageToScreen(m_cropRect);
-    scr = scr.Intersect(m_imageRect);
-    if (scr.width < 1 || scr.height < 1) return;
+void ImagePanel::DrawDim(wxDC& dc) {
+    wxRect cr = I2S(m_crop).Intersect(m_irect);
+    if (cr.width < 1 || cr.height < 1) return;
 
-    // Dim overlay
     dc.SetPen(*wxTRANSPARENT_PEN);
     dc.SetBrush(wxBrush(wxColour(0, 0, 0, 140)));
-    // top
-    if (scr.y > m_imageRect.y)
-        dc.DrawRectangle(m_imageRect.x, m_imageRect.y, m_imageRect.width, scr.y - m_imageRect.y);
-    // bottom
-    int be = scr.y + scr.height;
-    int ib = m_imageRect.y + m_imageRect.height;
-    if (be < ib)
-        dc.DrawRectangle(m_imageRect.x, be, m_imageRect.width, ib - be);
-    // left
-    if (scr.x > m_imageRect.x)
-        dc.DrawRectangle(m_imageRect.x, scr.y, scr.x - m_imageRect.x, scr.height);
-    // right
-    int re = scr.x + scr.width;
-    int ir = m_imageRect.x + m_imageRect.width;
-    if (re < ir)
-        dc.DrawRectangle(re, scr.y, ir - re, scr.height);
 
-    // Marching ants border
+    int ib = m_irect.y + m_irect.height;
+    int ir = m_irect.x + m_irect.width;
+    if (cr.y > m_irect.y)
+        dc.DrawRectangle(m_irect.x, m_irect.y, m_irect.width, cr.y - m_irect.y);
+    if (cr.y + cr.height < ib)
+        dc.DrawRectangle(m_irect.x, cr.y + cr.height, m_irect.width, ib - (cr.y + cr.height));
+    if (cr.x > m_irect.x)
+        dc.DrawRectangle(m_irect.x, cr.y, cr.x - m_irect.x, cr.height);
+    if (cr.x + cr.width < ir)
+        dc.DrawRectangle(cr.x + cr.width, cr.y, ir - (cr.x + cr.width), cr.height);
+
     dc.SetPen(wxPen(wxColour(255, 255, 255, 220), 1, wxPENSTYLE_SHORT_DASH));
     dc.SetBrush(*wxTRANSPARENT_BRUSH);
-    dc.DrawRectangle(scr);
+    dc.DrawRectangle(cr);
 
-    // Rule of thirds
-    dc.SetPen(wxPen(wxColour(255, 255, 255, 45), 1, wxPENSTYLE_DOT));
+    dc.SetPen(wxPen(wxColour(255, 255, 255, 40), 1, wxPENSTYLE_DOT));
     for (int i = 1; i < 3; i++) {
-        int gx = scr.x + scr.width  * i / 3;
-        int gy = scr.y + scr.height * i / 3;
-        dc.DrawLine(gx, scr.y, gx, scr.y + scr.height);
-        dc.DrawLine(scr.x, gy, scr.x + scr.width, gy);
+        int gx = cr.x + cr.width  * i / 3;
+        int gy = cr.y + cr.height * i / 3;
+        dc.DrawLine(gx, cr.y, gx, cr.y + cr.height);
+        dc.DrawLine(cr.x, gy, cr.x + cr.width, gy);
     }
 }
 
-void ImagePanel::DrawHandles(wxDC& dc) {
-    wxRect scr = ImageToScreen(m_cropRect);
+void ImagePanel::DrawHnd(wxDC& dc) {
+    wxRect r = I2S(m_crop);
     wxPoint pts[8] = {
-        {scr.x,              scr.y},
-        {scr.x+scr.width/2, scr.y},
-        {scr.x+scr.width,   scr.y},
-        {scr.x,              scr.y+scr.height/2},
-        {scr.x+scr.width,   scr.y+scr.height/2},
-        {scr.x,              scr.y+scr.height},
-        {scr.x+scr.width/2, scr.y+scr.height},
-        {scr.x+scr.width,   scr.y+scr.height},
+        {r.x, r.y}, {r.x+r.width/2, r.y}, {r.x+r.width, r.y},
+        {r.x, r.y+r.height/2}, {r.x+r.width, r.y+r.height/2},
+        {r.x, r.y+r.height}, {r.x+r.width/2, r.y+r.height}, {r.x+r.width, r.y+r.height}
     };
-    dc.SetPen(wxPen(wxColour(255, 255, 255), 1));
-    dc.SetBrush(wxBrush(wxColour(80, 80, 80)));
+    dc.SetPen(wxPen(wxColour(255,255,255), 1));
+    dc.SetBrush(wxBrush(wxColour(80,80,80)));
     for (auto& p : pts)
         dc.DrawRectangle(p.x - HANDLE_HALF, p.y - HANDLE_HALF, HANDLE_SIZE, HANDLE_SIZE);
 }
 
 void ImagePanel::OnSize(wxSizeEvent&) {
-    RecalcLayout();
-    RenderBuffer();
+    if (!m_img.IsOk()) return;
+    Layout();
+    m_bmp = wxBitmap(m_img.Scale(m_irect.width, m_irect.height, wxIMAGE_QUALITY_BILINEAR));
     Refresh();
 }
