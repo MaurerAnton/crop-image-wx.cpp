@@ -199,8 +199,6 @@ void ImagePanel::DrawBar(wxDC& dc) {
     static const char* labels[] = {"Open", "Crop", "Save", "SaveAs", "Reset"};
     static const Btn ids[] = {Btn::Open, Btn::Crop, Btn::Save, Btn::SaveAs, Btn::Reset};
 
-    dc.SetFont(wxFont(9, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
-
     for (int i = 0; i < 5; i++) {
         wxRect r = BtnRect(i);
         bool enabled = true;
@@ -216,8 +214,7 @@ void ImagePanel::DrawBar(wxDC& dc) {
         dc.DrawRectangle(r);
 
         dc.SetTextForeground(enabled ? wxColour(255,255,255) : wxColour(120,120,120));
-        int tw, th; dc.GetTextExtent(labels[i], &tw, &th);
-        dc.DrawText(labels[i], r.x + (r.width-tw)/2, r.y + (r.height-th)/2);
+        dc.DrawText(labels[i], r.x + 6, r.y + (r.height - dc.GetCharHeight())/2);
     }
 
     // Dimension display
@@ -226,9 +223,7 @@ void ImagePanel::DrawBar(wxDC& dc) {
     else if (HasImg()) dim = wxString::Format("%d × %d px", m_img.GetWidth(), m_img.GetHeight());
     if (!dim.empty()) {
         dc.SetTextForeground(wxColour(180, 180, 180));
-        dc.SetFont(wxFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-        int tw, th; dc.GetTextExtent(dim, &tw, &th);
-        dc.DrawText(dim, m_cw - tw - 10, y + (BAR_H - th)/2);
+        dc.DrawText(dim, m_cw - dc.GetTextExtent(dim).x - 10, y + (BAR_H - dc.GetCharHeight())/2);
     }
 }
 
