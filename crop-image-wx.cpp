@@ -192,7 +192,13 @@ void ImagePanel::DrawBar(wxDC& dc) {
     dc.SetPen(wxPen(wxColour(70,70,70), 1));
     dc.DrawLine(0, y, m_cw, y);
 
-    static const char* labels[] = {"Open", "Crop", "Save", "SaveAs", "Reset"};
+    static const wxColour btnColors[] = {
+        wxColour(60,100,60),   // Open — green
+        wxColour(100,70,40),   // Crop — orange
+        wxColour(60,70,100),   // Save — blue
+        wxColour(70,70,100),   // SaveAs — light blue
+        wxColour(100,60,60),   // Reset — red
+    };
     static const Btn ids[] = {Btn::Open, Btn::Crop, Btn::Save, Btn::SaveAs, Btn::Reset};
 
     for (int i = 0; i < 5; i++) {
@@ -201,26 +207,13 @@ void ImagePanel::DrawBar(wxDC& dc) {
         if (ids[i] == Btn::Crop) enabled = HasCrop();
         if (ids[i] == Btn::Save || ids[i] == Btn::SaveAs) enabled = HasImg();
 
-        wxColour bg(70,70,70), fg(180,180,180);
-        if (!enabled) { bg = wxColour(55,55,55); fg = wxColour(90,90,90); }
-        else if (m_hoverBtn == ids[i]) { bg = wxColour(90,90,90); fg = wxColour(255,255,255); }
+        wxColour c = btnColors[i];
+        if (!enabled) c = c.ChangeLightness(40);
+        else if (m_hoverBtn == ids[i]) c = c.ChangeLightness(140);
 
-        dc.SetPen(wxPen(wxColour(100,100,100), 1));
-        dc.SetBrush(wxBrush(bg));
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.SetBrush(wxBrush(c));
         dc.DrawRectangle(r);
-        dc.SetTextForeground(fg);
-        int tw, th; dc.GetTextExtent(labels[i], &tw, &th);
-        dc.DrawText(labels[i], r.x + (r.width-tw)/2, r.y + (r.height-th)/2);
-    }
-
-    // Dimension label on the right side of the bar
-    wxString dim;
-    if (HasCrop()) dim = wxString::Format("%d × %d  ", m_crop.width, m_crop.height);
-    else if (HasImg()) dim = wxString::Format("%d × %d  ", m_img.GetWidth(), m_img.GetHeight());
-    if (!dim.empty()) {
-        dc.SetTextForeground(wxColour(160,160,160));
-        int tw, th; dc.GetTextExtent(dim, &tw, &th);
-        dc.DrawText(dim, m_cw - tw - 8, y + (BAR_H - th)/2);
     }
 }
 
@@ -234,9 +227,9 @@ bool ImagePanel::Load(const wxString& path) {
     m_crop = wxRect(0,0,img.GetWidth(),img.GetHeight());
     m_cropEn = true;
     Recalc();
-    if (m_ir.width < 1 || m_ir.height < 1) { CallAfter([this](){ Refresh(); }); return true; }
+    if (m_ir.width < 1 || m_ir.height < 1) { Refresh(); return true; }
     m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
-    CallAfter([this](){ Refresh(); });
+    Refresh();
     return true;
 }
 
