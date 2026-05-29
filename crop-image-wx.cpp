@@ -49,6 +49,7 @@ private:
 class MainFrame : public wxFrame {
 public:
     MainFrame();
+    void PromptOpen();
     void LoadFile(const wxString& path);
 private:
     void OnOpen(wxCommandEvent&);
@@ -65,7 +66,6 @@ class CropApp : public wxApp {
         wxInitAllImageHandlers();
         auto* f = new MainFrame();
         f->Show(true);
-        // If argument given on command line, load it
         if (argc > 1) f->LoadFile(argv[1]);
         return true;
     }
@@ -76,23 +76,36 @@ MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, "Crop Tool — Untitled", wxDefaultPosition, wxSize(1024, 768))
 {
     pnl = new ImagePanel(this);
-    // Simple accelerator table for keyboard shortcuts
+
+    // sizer so panel fills the frame
+    auto* sz = new wxBoxSizer(wxVERTICAL);
+    sz->Add(pnl, 1, wxEXPAND);
+    SetSizer(sz);
+
     wxAcceleratorEntry ents[] = {
         {wxACCEL_CTRL, (int)'O', wxID_OPEN},
         {wxACCEL_CTRL, (int)'S', wxID_SAVE},
         {wxACCEL_CTRL | wxACCEL_SHIFT, (int)'S', wxID_SAVEAS},
         {wxACCEL_CTRL, WXK_RETURN, wxID_CUT},
     };
-    wxAcceleratorTable table(4, ents);
-    SetAcceleratorTable(table);
+    SetAcceleratorTable(wxAcceleratorTable(4, ents));
+
     Bind(wxEVT_MENU, &MainFrame::OnOpen,   this, wxID_OPEN);
     Bind(wxEVT_MENU, &MainFrame::OnSave,   this, wxID_SAVE);
     Bind(wxEVT_MENU, &MainFrame::OnSaveAs, this, wxID_SAVEAS);
     Bind(wxEVT_MENU, &MainFrame::OnCrop,   this, wxID_CUT);
 }
 
+void MainFrame::PromptOpen() {
+    wxCommandEvent dummy;
+    OnOpen(dummy);
+}
+
 void MainFrame::LoadFile(const wxString& p) {
-    if (pnl->Load(p)) { path = p; name = wxFileName(p).GetFullName(); SetTitle(name + " — Crop Tool"); }
+    if (pnl->Load(p)) {
+        path = p; name = wxFileName(p).GetFullName();
+        SetTitle(name + " — Crop Tool");
+    }
 }
 
 void MainFrame::OnOpen(wxCommandEvent&) {
@@ -144,8 +157,14 @@ bool ImagePanel::Load(const wxString& path) {
     m_crop = wxRect(0,0,img.GetWidth(),img.GetHeight());
     m_cropEn = true;
     Recalc();
+    if (m_ir.width < 1 || m_ir.height < 1) {
+        // client size not available yet — defer to OnSize
+        Refresh();
+        return true;
+    }
     m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
     Refresh();
+    Update(); // force immediate repaint
     return true;
 }
 
@@ -238,8 +257,12 @@ void ImagePanel::SetCur(const wxPoint& pt) {
 void ImagePanel::OnMouse(wxMouseEvent& evt) {
     if (!m_img.IsOk() || !m_cropEn) {
         if (evt.LeftDown()) {
-            wxFrame* f = dynamic_cast<wxFrame*>(wxGetTopLevelParent(this));
-            if (f) { wxCommandEvent openEvt(wxEVT_MENU, wxID_OPEN); f->GetEventHandler()->ProcessEvent(openEvt); }
+            // Use CallAfter to avoid nested event loop issues
+            CallAfter([this](){
+                wxFrame* f = dynamic_cast<wxFrame*>(wxGetTopLevelParent(this));
+                if (auto* mf = dynamic_cast<MainFrame*>(f))
+                    mf->PromptOpen();
+            });
         }
         evt.Skip(); return;
     }
@@ -301,7 +324,7 @@ void ImagePanel::OnPaint(wxPaintEvent&) {
     dc.Clear();
     if (!m_img.IsOk()) {
         dc.SetTextForeground(wxColour(150,150,150));
-        dc.DrawText("Drag an image here or Ctrl+O to open", 20, 20);
+        dc.DrawText("Click here or Ctrl+O to open an image", 20, 20);
         return;
     }
     if (m_bmp.IsOk()) dc.DrawBitmap(m_bmp, m_ir.x, m_ir.y);
@@ -342,6 +365,7 @@ void ImagePanel::DrawHnd(wxDC& dc) {
 void ImagePanel::OnSize(wxSizeEvent&) {
     if (!m_img.IsOk()) return;
     Recalc();
+    if (m_ir.width < 1 || m_ir.height < 1) return;
     m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
     Refresh();
 }
