@@ -1,15 +1,16 @@
 // crop-image-wx.cpp — GIMP-style wxWidgets image cropping tool
-// All UI is custom-drawn via wxDC (no wxButton/wxStaticText — avoids GTK crashes)
+// All UI custom-drawn; text pre-rendered to bitmaps to avoid Pango crashes
 
 #include <wx/wx.h>
 #include <wx/filedlg.h>
 #include <wx/image.h>
 #include <wx/filename.h>
+#include <wx/dcmemory.h>
 #include <algorithm>
 #include <cmath>
 
 constexpr int H_SIZE = 8, H_HALF = 4, H_HIT = 6, MIN_CROP = 10;
-constexpr int BAR_H = 32;  // bottom button-bar height
+constexpr int BAR_H = 34;
 
 enum class HID { None,NW,N,NE,W,C,E,SW,S,SE };
 enum class Btn { None, Open, Crop, Save, SaveAs, Reset };
@@ -43,19 +44,25 @@ private:
     Btn     HitBtn(const wxPoint& pt) const;
     wxRect  BtnRect(int idx) const;
     void    DoOpen();
+    void    BuildLabels();
 
-    wxImage m_img;
+    wxImage  m_img;
     wxBitmap m_bmp;
-    wxRect  m_ir;
-    int     m_cw=0, m_ch=0;  // client size
-    bool    m_cropEn = false;
-    wxRect  m_crop;
-    bool    m_hasCrop = false;
-    bool    m_drag = false, m_create = false;
-    wxPoint m_start;
-    wxRect  m_orig;
-    HID     m_handle = HID::None;
-    Btn     m_hoverBtn = Btn::None;
+    wxRect   m_ir;
+    int      m_cw=0, m_ch=0;
+    bool     m_cropEn = false;
+    wxRect   m_crop;
+    bool     m_hasCrop = false;
+    bool     m_drag = false, m_create = false;
+    wxPoint  m_start;
+    wxRect   m_orig;
+    HID      m_handle = HID::None;
+    Btn      m_hoverBtn = Btn::None;
+
+    // Pre-rendered button labels (bitmaps)
+    wxBitmap m_lblOpen, m_lblCrop, m_lblSave, m_lblSaveAs, m_lblReset;
+    wxBitmap m_lbls[5];
+    bool     m_labelsOk = false;
 };
 
 class MainFrame : public wxFrame {
@@ -107,7 +114,6 @@ MainFrame::MainFrame()
     Bind(wxEVT_MENU, &MainFrame::OnSave,   this, wxID_SAVE);
     Bind(wxEVT_MENU, &MainFrame::OnSaveAs, this, wxID_SAVEAS);
     Bind(wxEVT_MENU, &MainFrame::OnCrop,   this, wxID_CUT);
-    Bind(wxEVT_MENU, &MainFrame::OnReset,  this, wxID_UNDO);
 }
 
 void MainFrame::PromptOpen()  { wxCommandEvent d; OnOpen(d); }
@@ -143,8 +149,8 @@ void MainFrame::OnSaveAs(wxCommandEvent&) {
     if (img.SaveFile(p)) { path = p; name = wxFileName(p).GetFullName(); SetTitle(name + " — Crop Tool"); }
 }
 
-void MainFrame::OnCrop(wxCommandEvent&)   { pnl->Crop();  SetTitle((name.empty()?"Untitled":name)+" — Crop Tool"); }
-void MainFrame::OnReset(wxCommandEvent&)  { pnl->Reset(); }
+void MainFrame::OnCrop(wxCommandEvent&)  { pnl->Crop();  SetTitle((name.empty()?"Untitled":name)+" — Crop Tool"); }
+void MainFrame::OnReset(wxCommandEvent&) { pnl->Reset(); }
 
 // ══════════════════════ ImagePanel ══════════════════════
 
@@ -158,6 +164,33 @@ ImagePanel::ImagePanel(wxWindow* p) : wxPanel(p) {
     Bind(wxEVT_MOUSE_CAPTURE_LOST, [](wxMouseCaptureLostEvent&){});
     Bind(wxEVT_KEY_DOWN, &ImagePanel::OnKeyDown, this);
     Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent&){ m_hoverBtn = Btn::None; Refresh(); });
+    BuildLabels();
+}
+
+void ImagePanel::BuildLabels() {
+    // Try to pre-render text labels to bitmaps. If text is broken, labels stay invalid.
+    try {
+        static const char* texts[] = {"Open", "Crop", "Save", "SaveAs", "Reset"};
+        wxBitmap* dst[] = {&m_lblOpen, &m_lblCrop, &m_lblSave, &m_lblSaveAs, &m_lblReset};
+        for (int i = 0; i < 5; i++) {
+            int w = 70, h = 20;
+            wxBitmap bmp(w, h, 24);
+            wxMemoryDC mdc(bmp);
+            mdc.SetBackground(wxBrush(wxColour(0,0,0,0)));
+            mdc.Clear();
+            mdc.SetTextForeground(wxColour(255,255,255));
+            int tw, th;
+            mdc.GetTextExtent(texts[i], &tw, &th);
+            mdc.DrawText(texts[i], (w-tw)/2, (h-th)/2);
+            mdc.SelectObject(wxNullBitmap);
+            *dst[i] = bmp;
+        }
+        m_lbls[0]=m_lblOpen; m_lbls[1]=m_lblCrop; m_lbls[2]=m_lblSave;
+        m_lbls[3]=m_lblSaveAs; m_lbls[4]=m_lblReset;
+        m_labelsOk = true;
+    } catch (...) {
+        m_labelsOk = false;
+    }
 }
 
 void ImagePanel::DoOpen() {
@@ -167,11 +200,9 @@ void ImagePanel::DoOpen() {
     });
 }
 
-// ─── Button bar layout ────────────────────────────────────────────────────
-
 wxRect ImagePanel::BtnRect(int idx) const {
     int y = m_ch - BAR_H;
-    int bw = 72, gap = 4;
+    int bw = 76, gap = 4;
     return wxRect(gap + idx*(bw+gap), y + 4, bw, BAR_H - 8);
 }
 
@@ -185,7 +216,6 @@ Btn ImagePanel::HitBtn(const wxPoint& pt) const {
 
 void ImagePanel::DrawBar(wxDC& dc) {
     int y = m_ch - BAR_H;
-    // background
     dc.SetPen(*wxTRANSPARENT_PEN);
     dc.SetBrush(wxBrush(wxColour(50,50,50)));
     dc.DrawRectangle(0, y, m_cw, BAR_H);
@@ -196,7 +226,6 @@ void ImagePanel::DrawBar(wxDC& dc) {
         wxColour(60,100,60), wxColour(100,70,40), wxColour(60,70,100),
         wxColour(70,70,100), wxColour(100,60,60)
     };
-    static const char* labels[] = {"Open", "Crop", "Save", "SaveAs", "Reset"};
     static const Btn ids[] = {Btn::Open, Btn::Crop, Btn::Save, Btn::SaveAs, Btn::Reset};
 
     for (int i = 0; i < 5; i++) {
@@ -213,21 +242,14 @@ void ImagePanel::DrawBar(wxDC& dc) {
         dc.SetBrush(wxBrush(c));
         dc.DrawRectangle(r);
 
-        dc.SetTextForeground(enabled ? wxColour(255,255,255) : wxColour(120,120,120));
-        dc.DrawText(labels[i], r.x + 6, r.y + (r.height - dc.GetCharHeight())/2);
-    }
-
-    // Dimension display
-    wxString dim;
-    if (HasCrop()) dim = wxString::Format("%d × %d", m_crop.width, m_crop.height);
-    else if (HasImg()) dim = wxString::Format("%d × %d px", m_img.GetWidth(), m_img.GetHeight());
-    if (!dim.empty()) {
-        dc.SetTextForeground(wxColour(180, 180, 180));
-        dc.DrawText(dim, m_cw - dc.GetTextExtent(dim).x - 10, y + (BAR_H - dc.GetCharHeight())/2);
+        // Draw pre-rendered label bitmap
+        if (m_labelsOk && m_lbls[i].IsOk()) {
+            int bx = r.x + (r.width - m_lbls[i].GetWidth())/2;
+            int by = r.y + (r.height - m_lbls[i].GetHeight())/2;
+            dc.DrawBitmap(m_lbls[i], bx, by, true);  // true = use mask for transparency
+        }
     }
 }
-
-// ─── Load / Crop / Reset ──────────────────────────────────────────────────
 
 bool ImagePanel::Load(const wxString& path) {
     wxImage img(path);
@@ -239,7 +261,6 @@ bool ImagePanel::Load(const wxString& path) {
     Recalc();
     if (m_ir.width > 0 && m_ir.height > 0)
         m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
-    // No Refresh() here — paint fires naturally when file dialog closes
     return true;
 }
 
@@ -337,7 +358,6 @@ void ImagePanel::OnMouse(wxMouseEvent& evt) {
     }
     wxPoint pt = evt.GetPosition();
 
-    // Button bar clicks
     if (evt.LeftDown() && pt.y >= m_ch - BAR_H) {
         switch (HitBtn(pt)) {
         case Btn::Open:   DoOpen(); break;
@@ -350,7 +370,6 @@ void ImagePanel::OnMouse(wxMouseEvent& evt) {
         return;
     }
 
-    // Hover tracking for button bar
     if (evt.Moving()) {
         Btn prev = m_hoverBtn;
         m_hoverBtn = HitBtn(pt);
@@ -415,12 +434,9 @@ void ImagePanel::OnPaint(wxPaintEvent&) {
     wxPaintDC dc(this);
     dc.SetBackground(wxBrush(GetBackgroundColour()));
     dc.Clear();
-
     if (m_img.IsOk() && m_bmp.IsOk())
         dc.DrawBitmap(m_bmp, m_ir.x, m_ir.y);
-
     if (m_hasCrop && m_cropEn) { DrawDim(dc); DrawHnd(dc); }
-
     DrawBar(dc);
 }
 
