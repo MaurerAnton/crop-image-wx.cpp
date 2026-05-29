@@ -192,14 +192,14 @@ void ImagePanel::DrawBar(wxDC& dc) {
     dc.SetPen(wxPen(wxColour(70,70,70), 1));
     dc.DrawLine(0, y, m_cw, y);
 
-    static const wxColour btnColors[] = {
-        wxColour(60,100,60),   // Open — green
-        wxColour(100,70,40),   // Crop — orange
-        wxColour(60,70,100),   // Save — blue
-        wxColour(70,70,100),   // SaveAs — light blue
-        wxColour(100,60,60),   // Reset — red
+    static const wxColour btnBg[] = {
+        wxColour(60,100,60), wxColour(100,70,40), wxColour(60,70,100),
+        wxColour(70,70,100), wxColour(100,60,60)
     };
+    static const char* labels[] = {"Open", "Crop", "Save", "SaveAs", "Reset"};
     static const Btn ids[] = {Btn::Open, Btn::Crop, Btn::Save, Btn::SaveAs, Btn::Reset};
+
+    dc.SetFont(wxFont(9, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
 
     for (int i = 0; i < 5; i++) {
         wxRect r = BtnRect(i);
@@ -207,13 +207,28 @@ void ImagePanel::DrawBar(wxDC& dc) {
         if (ids[i] == Btn::Crop) enabled = HasCrop();
         if (ids[i] == Btn::Save || ids[i] == Btn::SaveAs) enabled = HasImg();
 
-        wxColour c = btnColors[i];
+        wxColour c = btnBg[i];
         if (!enabled) c = c.ChangeLightness(40);
         else if (m_hoverBtn == ids[i]) c = c.ChangeLightness(140);
 
         dc.SetPen(*wxTRANSPARENT_PEN);
         dc.SetBrush(wxBrush(c));
         dc.DrawRectangle(r);
+
+        dc.SetTextForeground(enabled ? wxColour(255,255,255) : wxColour(120,120,120));
+        int tw, th; dc.GetTextExtent(labels[i], &tw, &th);
+        dc.DrawText(labels[i], r.x + (r.width-tw)/2, r.y + (r.height-th)/2);
+    }
+
+    // Dimension display
+    wxString dim;
+    if (HasCrop()) dim = wxString::Format("%d × %d", m_crop.width, m_crop.height);
+    else if (HasImg()) dim = wxString::Format("%d × %d px", m_img.GetWidth(), m_img.GetHeight());
+    if (!dim.empty()) {
+        dc.SetTextForeground(wxColour(180, 180, 180));
+        dc.SetFont(wxFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
+        int tw, th; dc.GetTextExtent(dim, &tw, &th);
+        dc.DrawText(dim, m_cw - tw - 10, y + (BAR_H - th)/2);
     }
 }
 
@@ -227,9 +242,9 @@ bool ImagePanel::Load(const wxString& path) {
     m_crop = wxRect(0,0,img.GetWidth(),img.GetHeight());
     m_cropEn = true;
     Recalc();
-    if (m_ir.width < 1 || m_ir.height < 1) { Refresh(); return true; }
-    m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
-    Refresh();
+    if (m_ir.width > 0 && m_ir.height > 0)
+        m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
+    // No Refresh() here — paint fires naturally when file dialog closes
     return true;
 }
 
