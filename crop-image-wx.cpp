@@ -213,13 +213,12 @@ bool ImagePanel::Load(const wxString& path) {
     m_cropEn = true;
     Recalc();
     if (m_ir.width < 1 || m_ir.height < 1) {
-        // client size not available yet — defer to OnSize
+        // client area not ready — deferred to OnSize
         Refresh();
         return true;
     }
     m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
     Refresh();
-    Update(); // force immediate repaint
     NotifyFrame();
     return true;
 }
@@ -422,7 +421,9 @@ void ImagePanel::DrawHnd(wxDC& dc) {
 }
 
 void ImagePanel::NotifyFrame() {
-    if (auto* f = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this))) {
+    wxWindow* top = wxGetTopLevelParent(this);
+    if (!top) return;
+    if (auto* f = dynamic_cast<MainFrame*>(top)) {
         f->UpdateCropBtn();
         if (m_hasCrop && m_img.IsOk())
             f->UpdateDimLabel(m_crop.width, m_crop.height);
