@@ -7,7 +7,6 @@
 #include <wx/image.h>
 #include <wx/dcbuffer.h>
 #include <wx/filename.h>
-#include <wx/artprov.h>
 #include <wx/dnd.h>
 #include <algorithm>
 #include <cmath>
@@ -114,6 +113,7 @@ private:
 class CropApp : public wxApp {
 public:
     bool OnInit() override {
+        wxInitAllImageHandlers();
         auto* frame = new MainFrame();
         frame->Show(true);
         return true;
@@ -151,16 +151,6 @@ MainFrame::MainFrame()
     menuBar->Append(fileMenu, "&File");
     menuBar->Append(editMenu, "&Edit");
     SetMenuBar(menuBar);
-
-    // ── Toolbar ───────────────────────────────────────────────────────────
-    auto* tb = CreateToolBar(wxTB_FLAT | wxTB_HORIZONTAL | wxTB_NODIVIDER);
-    tb->SetToolBitmapSize(wxSize(24, 24));
-    tb->AddTool(wxID_OPEN,  "Open",  wxArtProvider::GetBitmap(wxART_FILE_OPEN,  wxART_TOOLBAR, wxSize(24,24)), "Open image");
-    tb->AddTool(wxID_SAVE,  "Save",  wxArtProvider::GetBitmap(wxART_FILE_SAVE,  wxART_TOOLBAR, wxSize(24,24)), "Save image");
-    tb->AddSeparator();
-    tb->AddTool(wxID_CUT,   "Crop",  wxArtProvider::GetBitmap(wxART_CUT,         wxART_TOOLBAR, wxSize(24,24)), "Apply crop");
-    tb->AddTool(wxID_UNDO,  "Reset", wxArtProvider::GetBitmap(wxART_GO_BACK,    wxART_TOOLBAR, wxSize(24,24)), "Reset crop");
-    tb->Realize();
 
     // ── Status bar ────────────────────────────────────────────────────────
     CreateStatusBar(2);
