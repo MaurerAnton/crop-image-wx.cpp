@@ -181,11 +181,11 @@ bool ImagePanel::Load(const wxString& path) {
     m_cropEn = true;
     Recalc();
     if (m_ir.width < 1 || m_ir.height < 1) {
-        Refresh();
+        CallAfter([this](){ Refresh(); });
         return true;
     }
     m_bmp = wxBitmap(m_img.Scale(m_ir.width, m_ir.height, wxIMAGE_QUALITY_BILINEAR));
-    Refresh();
+    CallAfter([this](){ Refresh(); });
     return true;
 }
 
@@ -342,32 +342,9 @@ void ImagePanel::OnPaint(wxPaintEvent&) {
     wxPaintDC dc(this);
     dc.SetBackground(wxBrush(GetBackgroundColour()));
     dc.Clear();
-    if (!m_img.IsOk()) {
-        dc.SetTextForeground(wxColour(150,150,150));
-        dc.DrawText("Click to open, right-click for menu", 20, 20);
-        return;
-    }
+    if (!m_img.IsOk()) return;
     if (m_bmp.IsOk()) dc.DrawBitmap(m_bmp, m_ir.x, m_ir.y);
-
-    // Draw dimensions overlay on the image (top-left corner)
-    if (m_hasCrop) {
-        DrawDim(dc); DrawHnd(dc);
-        wxString dim = wxString::Format("%d × %d", m_crop.width, m_crop.height);
-        wxRect cr = I2S(m_crop);
-        dc.SetTextForeground(wxColour(255,255,255));
-        dc.SetFont(wxFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
-        int tw, th;
-        dc.GetTextExtent(dim, &tw, &th);
-        int lx = std::max(cr.x, m_ir.x) + 4;
-        int ly = std::max(cr.y, m_ir.y) - th - 4;
-        if (ly < m_ir.y) ly = std::min(cr.y + cr.height, m_ir.y + m_ir.height) + 4;
-        dc.DrawText(dim, lx, ly);
-    } else {
-        wxString dim = wxString::Format("%d × %d", m_img.GetWidth(), m_img.GetHeight());
-        dc.SetTextForeground(wxColour(200,200,200));
-        dc.SetFont(wxFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-        dc.DrawText(dim, m_ir.x + 4, m_ir.y + 4);
-    }
+    if (m_hasCrop && m_cropEn) { DrawDim(dc); DrawHnd(dc); }
 }
 
 void ImagePanel::DrawDim(wxDC& dc) {
