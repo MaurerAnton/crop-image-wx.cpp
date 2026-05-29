@@ -153,8 +153,8 @@ MainFrame::MainFrame()
     SetMenuBar(menuBar);
 
     // ── Status bar ────────────────────────────────────────────────────────
-    CreateStatusBar(2);
-    SetStatusText("Ready", 0);
+    CreateStatusBar(1);
+    SetStatusText("Ready");
 
     // ── Panel ─────────────────────────────────────────────────────────────
     m_panel = new ImagePanel(this);
@@ -182,7 +182,7 @@ void MainFrame::OnOpen(wxCommandEvent&) {
         m_filenameTitle = dlg.GetFilename();
         UpdateTitle();
         wxSize imgSz(m_panel->GetCropped().GetSize());
-        SetStatusText(wxString::Format("Loaded: %dx%d", imgSz.x, imgSz.y), 0);
+        SetStatusText(wxString::Format("Loaded: %dx%d", imgSz.x, imgSz.y));
     } else {
         wxMessageBox("Failed to load image.", "Error", wxOK | wxICON_ERROR);
     }
@@ -196,7 +196,7 @@ void MainFrame::OnSave(wxCommandEvent&) {
     wxImage cropped = m_panel->GetCropped();
     if (!cropped.IsOk()) return;
     if (cropped.SaveFile(m_currentPath)) {
-        SetStatusText("Saved.", 0);
+        SetStatusText("Saved.");
     } else {
         wxMessageBox("Failed to save.", "Error", wxOK | wxICON_ERROR);
     }
@@ -222,7 +222,7 @@ void MainFrame::OnSaveAs(wxCommandEvent&) {
         m_currentPath = path;
         m_filenameTitle = wxFileName(path).GetFullName();
         UpdateTitle();
-        SetStatusText("Saved.", 0);
+        SetStatusText("Saved.");
     } else {
         wxMessageBox("Failed to save.", "Error", wxOK | wxICON_ERROR);
     }
@@ -233,12 +233,12 @@ void MainFrame::OnCrop(wxCommandEvent&) {
     m_panel->ApplyCrop();
     UpdateTitle();
     wxImage img = m_panel->GetCropped();
-    SetStatusText(wxString::Format("Cropped to %dx%d", img.GetWidth(), img.GetHeight()), 0);
+    SetStatusText(wxString::Format("Cropped to %dx%d", img.GetWidth(), img.GetHeight()));
 }
 
 void MainFrame::OnResetCrop(wxCommandEvent&) {
     m_panel->ResetCrop();
-    SetStatusText("Crop reset.", 0);
+    SetStatusText("Crop reset.");
 }
 
 void MainFrame::OnClose(wxCommandEvent&) { Close(true); }
@@ -377,6 +377,7 @@ void ImagePanel::RenderToBuffer() {
 // ─── Coordinate conversion ────────────────────────────────────────────────
 
 wxPoint ImagePanel::ScreenToImage(const wxPoint& screenPt) const {
+    if (m_imageRect.width <= 0 || m_imageRect.height <= 0) return wxPoint(0, 0);
     double scaleX = static_cast<double>(m_original.GetWidth())  / m_imageRect.width;
     double scaleY = static_cast<double>(m_original.GetHeight()) / m_imageRect.height;
     return wxPoint(
@@ -385,6 +386,7 @@ wxPoint ImagePanel::ScreenToImage(const wxPoint& screenPt) const {
 }
 
 wxPoint ImagePanel::ImageToScreen(const wxPoint& imagePt) const {
+    if (m_imageRect.width <= 0 || m_imageRect.height <= 0) return wxPoint(0, 0);
     double scaleX = static_cast<double>(m_imageRect.width)  / m_original.GetWidth();
     double scaleY = static_cast<double>(m_imageRect.height) / m_original.GetHeight();
     return wxPoint(
@@ -567,7 +569,7 @@ void ImagePanel::OnMouse(wxMouseEvent& evt) {
             wxGetTopLevelParent(this));
         if (frame) {
             frame->SetStatusText(
-                wxString::Format("Crop: %d, %d  %d×%d", r.x, r.y, r.width, r.height), 1);
+                wxString::Format("Crop: %d, %d  %d×%d", r.x, r.y, r.width, r.height));
         }
         return;
     }
@@ -675,6 +677,10 @@ void ImagePanel::OnPaint(wxPaintEvent&) {
 void ImagePanel::DrawCropOverlay(wxDC& dc) {
     wxRect scrRect = ImageToScreen(m_cropRect);
 
+    // Clamp crop screen rect to the image area
+    wxRect clamped = scrRect.Intersect(m_imageRect);
+    if (clamped.width <= 0 || clamped.height <= 0) return;
+
     // Semi-transparent dark overlay outside crop rect
     wxColour dim(0, 0, 0, 150);
     wxBrush dimBrush(dim);
@@ -683,36 +689,41 @@ void ImagePanel::DrawCropOverlay(wxDC& dc) {
     dc.SetPen(noPen);
     dc.SetBrush(dimBrush);
 
-    int l = m_imageRect.x;
-    int t = m_imageRect.y;
-    int r = m_imageRect.x + m_imageRect.width;
-    int b = m_imageRect.y + m_imageRect.height;
-
-    // Top
-    dc.DrawRectangle(l, t, m_imageRect.width, scrRect.y - t);
-    // Bottom
-    dc.DrawRectangle(l, scrRect.y + scrRect.height,
-                     m_imageRect.width, b - (scrRect.y + scrRect.height));
-    // Left
-    dc.DrawRectangle(l, scrRect.y, scrRect.x - l, scrRect.height);
-    // Right
-    dc.DrawRectangle(scrRect.x + scrRect.width, scrRect.y,
-                     r - (scrRect.x + scrRect.width), scrRect.height);
+    // Top strip (only if positive height)
+    if (clamped.y > m_imageRect.y)
+        dc.DrawRectangle(m_imageRect.x, m_imageRect.y,
+                         m_imageRect.width, clamped.y - m_imageRect.y);
+    // Bottom strip
+    int bottomEdge = clamped.y + clamped.height;
+    if (bottomEdge < m_imageRect.y + m_imageRect.height)
+        dc.DrawRectangle(m_imageRect.x, bottomEdge,
+                         m_imageRect.width,
+                         (m_imageRect.y + m_imageRect.height) - bottomEdge);
+    // Left strip
+    if (clamped.x > m_imageRect.x)
+        dc.DrawRectangle(m_imageRect.x, clamped.y,
+                         clamped.x - m_imageRect.x, clamped.height);
+    // Right strip
+    int rightEdge = clamped.x + clamped.width;
+    if (rightEdge < m_imageRect.x + m_imageRect.width)
+        dc.DrawRectangle(rightEdge, clamped.y,
+                         (m_imageRect.x + m_imageRect.width) - rightEdge,
+                         clamped.height);
 
     // Crop rectangle border — dashed "marching ants" effect
     wxPen dashPen(wxColour(255, 255, 255, 220), 1, wxPENSTYLE_SHORT_DASH);
     dc.SetPen(dashPen);
     dc.SetBrush(*wxTRANSPARENT_BRUSH);
-    dc.DrawRectangle(scrRect);
+    dc.DrawRectangle(clamped);
 
     // Rule of thirds guides (subtle)
     wxPen guidePen(wxColour(255, 255, 255, 50), 1, wxPENSTYLE_DOT);
     dc.SetPen(guidePen);
     for (int i = 1; i < 3; i++) {
-        int gx = scrRect.x + (scrRect.width  * i / 3);
-        int gy = scrRect.y + (scrRect.height * i / 3);
-        dc.DrawLine(gx, scrRect.y, gx, scrRect.y + scrRect.height);
-        dc.DrawLine(scrRect.x, gy, scrRect.x + scrRect.width, gy);
+        int gx = clamped.x + (clamped.width  * i / 3);
+        int gy = clamped.y + (clamped.height * i / 3);
+        dc.DrawLine(gx, clamped.y, gx, clamped.y + clamped.height);
+        dc.DrawLine(clamped.x, gy, clamped.x + clamped.width, gy);
     }
 }
 
