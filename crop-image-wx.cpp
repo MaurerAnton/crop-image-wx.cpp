@@ -63,9 +63,10 @@ private:
     // Pre-rendered button labels (bitmaps)
     wxBitmap m_lblOpen, m_lblCrop, m_lblSave, m_lblSaveAs, m_lblReset;
     wxBitmap m_lbls[5];
-    wxBitmap m_dimBmp;  // pre-rendered dimension label
+    wxBitmap m_dimBmp;  // crop dims (right side)
+    wxBitmap m_imgDimBmp; // permanent image dims (left side)
     bool     m_labelsOk = false;
-    int      m_lastDimW = -1, m_lastDimH = -1;  // track changes
+    int      m_lastDimW = -1, m_lastDimH = -1;
 };
 
 class MainFrame : public wxFrame {
@@ -198,20 +199,39 @@ void ImagePanel::BuildLabels() {
 
 void ImagePanel::UpdateDimBitmap(int w, int h) {
     if (!m_labelsOk || w <= 0 || h <= 0) { m_dimBmp = wxNullBitmap; return; }
-    if (w == m_lastDimW && h == m_lastDimH) return;  // no change
+    if (w == m_lastDimW && h == m_lastDimH) return;
     m_lastDimW = w; m_lastDimH = h;
+
+    // Crop dimensions (right side)
     wxString s = wxString::Format("%d x %d", w, h);
     int bw = 130, bh = 20;
     wxBitmap bmp(bw, bh, 24);
-    wxMemoryDC mdc(bmp);
-    mdc.SetBackground(wxBrush(wxColour(0,0,0,0)));
-    mdc.Clear();
-    mdc.SetTextForeground(wxColour(200, 200, 200));
-    int tw, th;
-    mdc.GetTextExtent(s, &tw, &th);
-    mdc.DrawText(s, (bw-tw)/2, (bh-th)/2);
-    mdc.SelectObject(wxNullBitmap);
+    {
+        wxMemoryDC mdc(bmp);
+        mdc.SetBackground(wxBrush(wxColour(0,0,0,0)));
+        mdc.Clear();
+        mdc.SetTextForeground(wxColour(200, 200, 200));
+        int tw, th;
+        mdc.GetTextExtent(s, &tw, &th);
+        mdc.DrawText(s, (bw-tw)/2, (bh-th)/2);
+    }
     m_dimBmp = bmp;
+
+    // Permanent image dimensions (left side) — render once
+    if (!m_imgDimBmp.IsOk() && HasImg()) {
+        wxString is = wxString::Format("Image: %d x %d", m_img.GetWidth(), m_img.GetHeight());
+        int iw = 180, ih = 20;
+        wxBitmap ib(iw, ih, 24);
+        wxMemoryDC mdc(ib);
+        mdc.SetBackground(wxBrush(wxColour(0,0,0,0)));
+        mdc.Clear();
+        mdc.SetTextForeground(wxColour(150, 150, 150));
+        int tw, th;
+        mdc.GetTextExtent(is, &tw, &th);
+        mdc.DrawText(is, (iw-tw)/2, (ih-th)/2);
+        m_imgDimBmp = ib;
+    }
+    if (!HasImg()) m_imgDimBmp = wxNullBitmap;
 }
 
 void ImagePanel::DoOpen() {
@@ -271,11 +291,18 @@ void ImagePanel::DrawBar(wxDC& dc) {
         }
     }
 
-    // Dimension display
-    int dimW = HasCrop() ? m_crop.width : (HasImg() ? m_img.GetWidth() : 0);
-    int dimH = HasCrop() ? m_crop.height : (HasImg() ? m_img.GetHeight() : 0);
-    UpdateDimBitmap(dimW, dimH);
-    if (m_dimBmp.IsOk()) {
+    // Permanent image dimensions (left side)
+    if (HasImg()) {
+        int dimW = HasCrop() ? m_crop.width : m_img.GetWidth();
+        int dimH = HasCrop() ? m_crop.height : m_img.GetHeight();
+        UpdateDimBitmap(dimW, dimH);
+    }
+    if (m_imgDimBmp.IsOk()) {
+        dc.DrawBitmap(m_imgDimBmp, 6, y + (BAR_H - m_imgDimBmp.GetHeight())/2, true);
+    }
+
+    // Crop dimensions (right side) — only when crop active
+    if (HasCrop() && m_dimBmp.IsOk()) {
         int dx = m_cw - m_dimBmp.GetWidth() - 6;
         int dy = y + (BAR_H - m_dimBmp.GetHeight())/2;
         dc.DrawBitmap(m_dimBmp, dx, dy, true);
