@@ -53,7 +53,8 @@ public:
     MainFrame();
     void PromptOpen();
     void LoadFile(const wxString& path);
-    void UpdateCropBtn();   // enable/disable Crop button based on selection state
+    void UpdateCropBtn();
+    void UpdateDimLabel(int w, int h);
 private:
     void OnOpen(wxCommandEvent&);
     void OnSave(wxCommandEvent&);
@@ -62,6 +63,7 @@ private:
     void OnReset(wxCommandEvent&);
     ImagePanel* pnl;
     wxButton*   cropBtn;
+    wxStaticText* dimLabel;
     wxString path, name;
 };
 
@@ -92,14 +94,18 @@ MainFrame::MainFrame()
     auto* saveBtn  = new wxButton(bar, wxID_SAVE,   "Save");
     auto* saveAsBtn= new wxButton(bar, wxID_SAVEAS, "Save As");
     auto* resetBtn = new wxButton(bar, wxID_UNDO,   "Reset");
+    dimLabel        = new wxStaticText(bar, wxID_ANY, "");
+    dimLabel->SetForegroundColour(wxColour(180, 180, 180));
 
-    cropBtn->Disable(); // no crop rect yet
+    cropBtn->Disable();
 
     bs->Add(openBtn,   0, wxALL, 4);
     bs->Add(cropBtn,   0, wxALL, 4);
     bs->Add(saveBtn,   0, wxALL, 4);
     bs->Add(saveAsBtn, 0, wxALL, 4);
     bs->Add(resetBtn,  0, wxALL, 4);
+    bs->AddStretchSpacer();
+    bs->Add(dimLabel,  0, wxALL | wxALIGN_CENTER_VERTICAL, 6);
     bar->SetSizer(bs);
 
     // ── Layout ────────────────────────────────────────────────────────────
@@ -134,6 +140,15 @@ MainFrame::MainFrame()
 void MainFrame::UpdateCropBtn() {
     if (cropBtn && pnl)
         cropBtn->Enable(pnl->HasImg() && pnl->HasCrop());
+}
+
+void MainFrame::UpdateDimLabel(int w, int h) {
+    if (dimLabel) {
+        if (w > 0 && h > 0)
+            dimLabel->SetLabel(wxString::Format("%d × %d px", w, h));
+        else
+            dimLabel->SetLabel("");
+    }
 }
 
 void MainFrame::PromptOpen() {
@@ -343,7 +358,7 @@ void ImagePanel::OnMouse(wxMouseEvent& evt) {
             case HID::C:  m_crop=wxRect(r.x+d.x,r.y+d.y,r.width,r.height); break;
             default: break;
             }
-        } Clamp(); Refresh(); return;
+        } Clamp(); Refresh(); NotifyFrame(); return;
     }
     if (evt.LeftUp() && m_drag) {
         m_drag=false; m_create=false; m_handle=HID::None;
@@ -407,8 +422,15 @@ void ImagePanel::DrawHnd(wxDC& dc) {
 }
 
 void ImagePanel::NotifyFrame() {
-    if (auto* f = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this)))
+    if (auto* f = dynamic_cast<MainFrame*>(wxGetTopLevelParent(this))) {
         f->UpdateCropBtn();
+        if (m_hasCrop && m_img.IsOk())
+            f->UpdateDimLabel(m_crop.width, m_crop.height);
+        else if (m_img.IsOk())
+            f->UpdateDimLabel(m_img.GetWidth(), m_img.GetHeight());
+        else
+            f->UpdateDimLabel(0, 0);
+    }
 }
 
 void ImagePanel::OnSize(wxSizeEvent&) {
