@@ -237,7 +237,13 @@ void ImagePanel::SetCur(const wxPoint& pt) {
 }
 
 void ImagePanel::OnMouse(wxMouseEvent& evt) {
-    if (!m_img.IsOk() || !m_cropEn) { evt.Skip(); return; }
+    if (!m_img.IsOk() || !m_cropEn) {
+        if (evt.LeftDown()) {
+            wxFrame* f = dynamic_cast<wxFrame*>(wxGetTopLevelParent(this));
+            if (f) { wxCommandEvent openEvt(wxEVT_MENU, wxID_OPEN); f->GetEventHandler()->ProcessEvent(openEvt); }
+        }
+        evt.Skip(); return;
+    }
     wxPoint pt = evt.GetPosition();
     if (evt.LeftDown()) {
         SetFocus();
