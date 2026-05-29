@@ -217,12 +217,11 @@ HID ImagePanel::Hit(const wxPoint& pt) const {
 }
 
 void ImagePanel::Clamp() {
-    int iw=m_img.GetWidth(), ih=m_img.GetHeight();
-    if (m_crop.width<MIN_CROP) m_crop.width=MIN_CROP;
-    if (m_crop.height<MIN_CROP) m_crop.height=MIN_CROP;
-    if (m_crop.x<0) m_crop.x=0; if (m_crop.y<0) m_crop.y=0;
-    if (m_crop.GetRight()>iw) m_crop.x=iw-m_crop.width;
-    if (m_crop.GetBottom()>ih) m_crop.y=ih-m_crop.height;
+    if (m_crop.width < MIN_CROP) m_crop.width = MIN_CROP;
+    if (m_crop.height < MIN_CROP) m_crop.height = MIN_CROP;
+    m_crop = m_crop.Intersect(wxRect(0, 0, m_img.GetWidth(), m_img.GetHeight()));
+    if (m_crop.width < MIN_CROP) m_crop.width = MIN_CROP;
+    if (m_crop.height < MIN_CROP) m_crop.height = MIN_CROP;
 }
 
 void ImagePanel::SetCur(const wxPoint& pt) {
